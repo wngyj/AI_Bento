@@ -67,7 +67,7 @@ MARGIN = 4
 LABEL_H = 20
 LABEL_GAP = 3
 LABEL_MARGIN = 3
-CODEX_EXPANDED_H = 78
+CODEX_EXPANDED_H = 46
 SIZE_LEVELS = {"小": 0.55, "中": 0.7, "大": 0.9}
 SPEED = 380.0
 TICK = 20
@@ -782,7 +782,7 @@ class PetWindow(QWidget):
         return format_codex_usage_text(self.codex_usage, self.cfg["codex_usage_view"])
 
     def _show_codex_usage_details(self):
-        """中键在脚下标签就地展开/收起完整 Codex 用量。"""
+        """中键在脚下标签就地展开/收起当前选中的 Codex 用量窗口。"""
         self.codex_usage_expanded = not self.codex_usage_expanded
         self._update_label_layout()
 
@@ -806,11 +806,11 @@ class PetWindow(QWidget):
         if self.codex_usage is None:
             return [self._codex_usage_label()]
         usage = self.codex_usage
+        view = self.cfg["codex_usage_view"]
+        prefix = "primary" if view == "primary" else "secondary"
         return [
-            format_codex_usage_text(usage, "secondary"),
-            format_codex_reset_date(usage.get("secondary_reset"), primary=False),
-            format_codex_usage_text(usage, "primary"),
-            format_codex_reset_date(usage.get("primary_reset"), primary=True),
+            format_codex_usage_text(usage, view),
+            format_codex_reset_date(usage.get(f"{prefix}_reset"), primary=(prefix == "primary")),
         ]
 
     def _update_label_layout(self):
@@ -1196,13 +1196,14 @@ class PetWindow(QWidget):
             self.food_panel.popup_at(self.x() + self.width() / 2, self.y() + BUBBLE_H)
 
     def _on_single_click(self):
-        """单击：蹦跳回嘴 + 刷新余额"""
+        """单击：蹦跳回嘴 + 同时刷新 DeepSeek 余额与 Codex 用量。"""
         self.chat_paused = False
         if random.random() < 0.7:
             self.jump_t = 1.0
         if random.random() < 0.6:
             self.say(random.choice(REACT_LINES))
         self._refresh_balance(manual=True)
+        self._refresh_codex_usage()
 
     def on_food(self, food):
         self.food_panel.hide()
