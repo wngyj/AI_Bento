@@ -488,6 +488,8 @@ class PetWindow(QWidget):
         ]
         if self.cfg.get("codex_usage_view") not in ("primary", "secondary"):
             self.cfg["codex_usage_view"] = "primary"
+        # 标签区域尺寸会在窗口创建时计算，展开状态必须先存在。
+        self.codex_usage_expanded = False
         
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         if self.cfg.get("topmost", True):
@@ -547,7 +549,6 @@ class PetWindow(QWidget):
         self.codex_usage = None
         self.codex_status = "loading"
         self.codex_busy = False
-        self.codex_usage_expanded = False
         self._label_hitboxes = {}
         self._label_click_object = None
 
@@ -796,7 +797,8 @@ class PetWindow(QWidget):
                 + (len(shown) - 1) * LABEL_GAP + LABEL_MARGIN * 2)
 
     def _label_height(self, key):
-        if key == "codex_usage" and self.codex_usage_expanded and self.codex_usage is not None:
+        if (key == "codex_usage" and getattr(self, "codex_usage_expanded", False)
+                and getattr(self, "codex_usage", None) is not None):
             return CODEX_EXPANDED_H
         return LABEL_H
 
