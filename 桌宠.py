@@ -67,6 +67,7 @@ MARGIN = 4
 LABEL_H = 20
 LABEL_GAP = 3
 LABEL_MARGIN = 3
+CODEX_EXPANDED_H = 78
 SIZE_LEVELS = {"小": 0.55, "中": 0.7, "大": 0.9}
 SPEED = 380.0
 TICK = 20
@@ -237,9 +238,9 @@ def format_codex_usage_text(usage, view):
     used = usage.get(f"{prefix}_used")
     label = _codex_window_label(usage.get(f"{prefix}_window_min"), "5小时" if prefix == "primary" else "一周")
     if used is None:
-        return f"Codex {label} 暂无数据"
+        return f"Codex{label}暂无数据"
     remaining = max(0, min(100, round(100 - used)))
-    return f"Codex {label} 剩余 {remaining}%"
+    return f"Codex{label}剩余 {remaining}%"
 
 
 def format_reset_time(reset_at, now=None):
@@ -253,6 +254,21 @@ def format_reset_time(reset_at, now=None):
     minutes = max(1, remaining // 60)
     parts = ([f"{days}天"] if days else []) + ([f"{hours}小时"] if hours else []) + ([f"{minutes}分"] if not days else [])
     return "约" + "".join(parts) + "后重置"
+
+
+def format_codex_reset_date(reset_at, primary, now=None):
+    """5 小时窗口显示今天/明天时刻；一周窗口显示实际日期。"""
+    if reset_at is None:
+        return "重置时间未知"
+    now = time.time() if now is None else now
+    reset = time.localtime(reset_at)
+    if not primary:
+        return time.strftime("%Y/%m/%d", reset)
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    tomorrow = time.strftime("%Y-%m-%d", time.localtime(now + 86400))
+    day = time.strftime("%Y-%m-%d", reset)
+    prefix = "今天" if day == today else "明天" if day == tomorrow else time.strftime("%Y/%m/%d", reset)
+    return f"{prefix} {time.strftime('%H:%M', reset)}"
 
 
 def load_json(path, default):
@@ -531,6 +547,7 @@ class PetWindow(QWidget):
         self.codex_usage = None
         self.codex_status = "loading"
         self.codex_busy = False
+        self.codex_usage_expanded = False
         self._label_hitboxes = {}
         self._label_click_object = None
 
@@ -764,28 +781,35 @@ class PetWindow(QWidget):
         return format_codex_usage_text(self.codex_usage, self.cfg["codex_usage_view"])
 
     def _show_codex_usage_details(self):
-        if self.codex_usage is None:
-            QMessageBox.information(self, "Codex 剩余用量", "暂无数据，先完成一次 Codex 对话后再试。")
-            return
-        usage = self.codex_usage
-        primary = format_codex_usage_text(usage, "primary")
-        secondary = format_codex_usage_text(usage, "secondary")
-        detail = "\n\n".join(
-            (
-                f"{primary}\n{format_reset_time(usage.get('primary_reset'))}",
-                f"{secondary}\n{format_reset_time(usage.get('secondary_reset'))}",
-            )
-        )
-        QMessageBox.information(self, "Codex 剩余用量", detail)
+        """中键在脚下标签就地展开/收起完整 Codex 用量。"""
+        self.codex_usage_expanded = not self.codex_usage_expanded
+        self._update_label_layout()
 
     def _display_objects(self):
         return self.cfg.get("display_objects", [])
 
     def _label_area_height(self):
-        count = len(self._display_objects())
-        if not count:
+        shown = self._display_objects()
+        if not shown:
             return 0
-        return count * LABEL_H + (count - 1) * LABEL_GAP + LABEL_MARGIN * 2
+        return (sum(self._label_height(key) for key in shown)
+                + (len(shown) - 1) * LABEL_GAP + LABEL_MARGIN * 2)
+
+    def _label_height(self, key):
+        if key == "codex_usage" and self.codex_usage_expanded and self.codex_usage is not None:
+            return CODEX_EXPANDED_H
+        return LABEL_H
+
+    def _codex_usage_detail_lines(self):
+        if self.codex_usage is None:
+            return [self._codex_usage_label()]
+        usage = self.codex_usage
+        return [
+            format_codex_usage_text(usage, "secondary"),
+            format_codex_reset_date(usage.get("secondary_reset"), primary=False),
+            format_codex_usage_text(usage, "primary"),
+            format_codex_reset_date(usage.get("primary_reset"), primary=True),
+        ]
 
     def _update_label_layout(self):
         self.setFixedSize(self.win_w, self.cur_h + BUBBLE_H + MARGIN * 2 + 10 + self._label_area_height())
@@ -898,10 +922,11 @@ class PetWindow(QWidget):
         fm = QFontMetrics(lf)
         max_w = self.width() - 8
         shown = self._display_objects()
-        total_h = len(shown) * LABEL_H + max(0, len(shown) - 1) * LABEL_GAP
+        total_h = sum(self._label_height(key) for key in shown) + max(0, len(shown) - 1) * LABEL_GAP
         label_y = BUBBLE_H + MARGIN + self.cur_h + (self._label_area_height() - total_h) / 2
         self._label_hitboxes = {}
         for key in shown:
+            label_h = self._label_height(key)
             if key == "deepseek_balance":
                 raw_label, background = self._balance_label(), self._current_period()
                 candidates = [raw_label]
@@ -912,27 +937,41 @@ class PetWindow(QWidget):
                 candidates = [raw_label]
             else:
                 continue
-            combined = candidates[0]
-            for candidate in candidates:
-                if fm.horizontalAdvance(candidate) + 20 <= max_w:
-                    combined = candidate
-                    break
+            if key == "codex_usage" and self.codex_usage_expanded and self.codex_usage is not None:
+                lines = self._codex_usage_detail_lines()
             else:
-                combined = candidates[-1]
-                while len(combined) > 3 and fm.horizontalAdvance(combined) + 20 > max_w:
-                    combined = combined[:-1]
-                combined += "…"
-            label_w = min(fm.horizontalAdvance(combined) + 20, max_w)
+                combined = candidates[0]
+                for candidate in candidates:
+                    if fm.horizontalAdvance(candidate) + 20 <= max_w:
+                        combined = candidate
+                        break
+                else:
+                    combined = candidates[-1]
+                    while len(combined) > 3 and fm.horizontalAdvance(combined) + 20 > max_w:
+                        combined = combined[:-1]
+                    combined += "…"
+                lines = [combined]
+            fitted_lines = []
+            for line in lines:
+                original = line
+                while len(line) > 3 and fm.horizontalAdvance(line) + 20 > max_w:
+                    line = line[:-1]
+                fitted_lines.append(line + "…" if line != original else line)
+            label_w = min(max(fm.horizontalAdvance(line) for line in fitted_lines) + 20, max_w)
             label_x = (self.width() - label_w) / 2
-            label_rect = QRectF(label_x, label_y, label_w, LABEL_H)
+            label_rect = QRectF(label_x, label_y, label_w, label_h)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(background)
             p.drawRoundedRect(label_rect, 10, 10)
             p.setPen(QColor(255, 255, 255))
             p.setFont(lf)
-            p.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, combined)
+            line_h = fm.height()
+            text_y = label_y + (label_h - len(fitted_lines) * line_h) / 2
+            for index, line in enumerate(fitted_lines):
+                p.drawText(QRectF(label_x, text_y + index * line_h, label_w, line_h),
+                           Qt.AlignmentFlag.AlignCenter, line)
             self._label_hitboxes[key] = label_rect
-            label_y += LABEL_H + LABEL_GAP
+            label_y += label_h + LABEL_GAP
 
     def _sprite_key(self):
         name = {"left": "侧面", "right": "侧面", "up": "背面", "down": "正面"}[self.dir]
