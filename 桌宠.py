@@ -765,16 +765,18 @@ class PetWindow(QWidget):
 
     def _show_codex_usage_details(self):
         if self.codex_usage is None:
-            self.say("Codex 用量暂无数据，先完成一次 Codex 对话后再试。")
+            QMessageBox.information(self, "Codex 剩余用量", "暂无数据，先完成一次 Codex 对话后再试。")
             return
         usage = self.codex_usage
         primary = format_codex_usage_text(usage, "primary")
         secondary = format_codex_usage_text(usage, "secondary")
-        detail = (
-            f"{primary}，{format_reset_time(usage.get('primary_reset'))}；"
-            f"{secondary}，{format_reset_time(usage.get('secondary_reset'))}"
+        detail = "\n\n".join(
+            (
+                f"{primary}\n{format_reset_time(usage.get('primary_reset'))}",
+                f"{secondary}\n{format_reset_time(usage.get('secondary_reset'))}",
+            )
         )
-        self.say(detail)
+        QMessageBox.information(self, "Codex 剩余用量", detail)
 
     def _display_objects(self):
         return self.cfg.get("display_objects", [])
